@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlparse
 from Graph import WWWGraph
 import re
 
-DIR = "./downloaded_pages"
+DIR = "./download"
 
 
 class WWWRobot:
@@ -30,6 +30,8 @@ class WWWRobot:
             try:
                 print(f"getting {url}")
                 response = requests.get(url)
+                if "text/html" not in response.headers["content-type"]:
+                    return None
                 if response.status_code == 200:
                     page_content = response.text
                     self.visited_pages.add(url)
@@ -52,12 +54,7 @@ class WWWRobot:
         for anchor in dom.find_all("a", href=True):
             link = urljoin(url, anchor["href"])
             if urlparse(link).netloc == urlparse(self.start_url).netloc:
-                if (
-                    not re.search(r"\.(pdf|docx)$", link)
-                    and not re.match(r"mailto:", link)
-                    and not re.match(r"tel:", link)
-                ):
-                    links.add(self.validate_url(link))
+                links.add(self.validate_url(link))
         return links
 
     def start(self):

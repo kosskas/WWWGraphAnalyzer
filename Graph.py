@@ -22,12 +22,15 @@ class WWWGraph:
     def printGraph(self):
 
         valid_names = {
-            node: re.sub(r"https?://", "", node).replace("/", "-").replace(".", "-")
+            node: re.sub(r"https?://", "", node)
+            .replace("/", "-")
+            .replace(".", "-")
+            .replace("%", "-")
             for node in self.G.nodes
         }
         self.G = nx.relabel_nodes(self.G, valid_names)
         # pos = nx.spring_layout(self.G, scale=10.0)
-        # pos = nx.spring_layout(self.G, k=2.5, scale=100)
+        # pos = nx.spring_layout(self.G, k=3)
         pos = nx.random_layout(self.G, seed=random.randint(0, 0xFFFFFFFF))
 
         for node, _ in pos.items():
@@ -43,6 +46,7 @@ class WWWGraph:
             node_options="node_options",
         )
 
-        latex = latex.replace("\\begin{scope}[->]", "\\begin{scope}[->, opacity=0.3]")
-        with open("graph.tex", "w") as f:
+        latex = latex.replace("\\begin{scope}[->]", "\\begin{scope}[->, opacity=0.2]")
+        latex = latex.replace("\\begin{tikzpicture}", "\\begin{tikzpicture}[scale=15]")
+        with open("graph.tex", "w", encoding="utf-8") as f:
             f.write(latex)
