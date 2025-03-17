@@ -21,11 +21,12 @@ class WWWRobot:
         self.robot_parser = RobotFileParser()
         self.robot_parser.set_url(urljoin(start_url, "robots.txt"))
         self.robot_parser.read()
+        self.idx = 0
 
     def is_allowed(self, url):
         return self.robot_parser.can_fetch("*", url)
 
-    def get_page(self, url, idx):
+    def get_page(self, parent, url):
         if url not in self.visited_pages and self.is_allowed(url):
             try:
                 print(f"getting {url}")
@@ -35,6 +36,9 @@ class WWWRobot:
                 if response.status_code == 200:
                     page_content = response.text
                     self.visited_pages.add(url)
+                    if self.idx > 0:
+                        self.www_graph.addDirectedEdge(parent, url)
+                    self.idx += 1
                     return page_content
             except requests.RequestException as e:
                 print(f"Error reading page {url}: {e}")
@@ -60,18 +64,16 @@ class WWWRobot:
     def start(self):
         if not os.path.exists(DIR):
             os.makedirs(DIR)
-        idx = 0
-        self.queue.put(self.start_url)
-        while not self.queue.empty():
-            print(f"Queue {self.queue.qsize()}")
-            url = self.queue.get()
-            page = self.get_page(url, idx)
+        self.queue.put((None, self.start_url))
+        while not self.queue.empty() and self.idx < self.pages_limit:
+            print(f"{self.idx}/{self.pages_limit} Crawled")
+            parent, url = self.queue.get()
+            page = self.get_page(parent, url)
             if page is not None:
                 links = self.parse_links(page, url)
                 for link in links:
-                    if link not in self.visited_pages and idx < self.pages_limit:
-                        self.queue.put(link)
-                        self.www_graph.addDirectedEdge(url, link)
-                        idx += 1
+                    if link not in self.visited_pages:
+                        self.queue.put((url, link))
+
         self.www_graph.printGraph()
         print(self.visited_pages)

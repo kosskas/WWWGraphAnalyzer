@@ -29,9 +29,10 @@ class WWWGraph:
             for node in self.G.nodes
         }
         self.G = nx.relabel_nodes(self.G, valid_names)
-        # pos = nx.spring_layout(self.G, scale=10.0)
-        # pos = nx.spring_layout(self.G, k=3)
-        pos = nx.random_layout(self.G, seed=random.randint(0, 0xFFFFFFFF))
+        pos = nx.spring_layout(self.G)
+        # pos = nx.spring_layout(self.G, k=0.5)
+        # pos = nx.spring_layout(self.G, k=2)
+        # pos = nx.random_layout(self.G, seed=random.randint(0, 0xFFFFFFFF))
 
         for node, _ in pos.items():
             self.G.nodes[node][
