@@ -13,11 +13,14 @@ class WWWGraph:
     def addDirectedEdge(self, page, sub_page):
         self.G.add_edge(page, sub_page)
 
-    def basic_stats(self):
-        """Zwraca podstawowe statystyki grafu"""
-        num_nodes = len(self.G.nodes())
-        num_edges = len(self.G.edges())
-        return num_nodes, num_edges
+    def size(self):
+        return len(self.G.nodes)
+
+    def read(self):
+        self.G = nx.read_gml("graph.gml")
+
+    def save(self):
+        nx.write_gml(self.G, "graph.gml")
 
     def printGraph(self):
 
@@ -29,7 +32,7 @@ class WWWGraph:
             for node in self.G.nodes
         }
         self.G = nx.relabel_nodes(self.G, valid_names)
-        pos = nx.spring_layout(self.G)
+        pos = nx.spring_layout(self.G, k=2)
         # pos = nx.spring_layout(self.G, k=0.5)
         # pos = nx.spring_layout(self.G, k=2)
         # pos = nx.random_layout(self.G, seed=random.randint(0, 0xFFFFFFFF))

@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -7,12 +8,13 @@ from urllib.robotparser import RobotFileParser
 from urllib.parse import urljoin, urlparse
 from Graph import WWWGraph
 import re
-
-DIR = "./download"
+import sympy
+import time
+import shutil
 
 
 class WWWRobot:
-    def __init__(self, start_url, pages_limit):
+    def __init__(self, start_url, pages_limit, max_threads):
         self.start_url = start_url
         self.visited_pages = set()
         self.pages_limit = pages_limit
@@ -22,27 +24,52 @@ class WWWRobot:
         self.robot_parser.set_url(urljoin(start_url, "robots.txt"))
         self.robot_parser.read()
         self.idx = 0
+        self.lock = threading.Lock()
+        self.max_threads = max_threads
+        self.save_dir = "./download"
+        self.clear_directory()
 
     def is_allowed(self, url):
         return self.robot_parser.can_fetch("*", url)
 
-    def get_page(self, parent, url):
-        if url not in self.visited_pages and self.is_allowed(url):
+    def clear_directory(self):
+        if os.path.exists(self.save_dir):
+            shutil.rmtree(self.save_dir)
+        os.makedirs(self.save_dir)
+
+    def get_page(self, url):
+        if self.is_allowed(url):
             try:
-                print(f"getting {url}")
-                response = requests.get(url)
+                response = requests.get(url, timeout=5)
                 if "text/html" not in response.headers["content-type"]:
                     return None
                 if response.status_code == 200:
                     page_content = response.text
-                    self.visited_pages.add(url)
-                    if self.idx > 0:
-                        self.www_graph.addDirectedEdge(parent, url)
-                    self.idx += 1
+                    self.save_page(url, page_content)
+
                     return page_content
             except requests.RequestException as e:
                 print(f"Error reading page {url}: {e}")
         return None
+
+    def save_page(self, url, content):
+        filename = (
+            re.sub(r"https?://", "", url)
+            .replace("/", "-")
+            .replace(".", "-")
+            .replace("%", "-")
+            + ".html"
+        )
+        filepath = os.path.join(self.save_dir, filename)
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+            with self.lock:
+                print(f"[{threading.get_ident()}] idx={self.idx} saving {url}")
+                self.idx += 1
+        except Exception as e:
+            print(f"Error {filepath}: {e}")
 
     def validate_url(self, url):
         url = re.sub(r"#.*", "", url)  # delete subsection
@@ -61,19 +88,48 @@ class WWWRobot:
                 links.add(self.validate_url(link))
         return links
 
-    def start(self):
-        if not os.path.exists(DIR):
-            os.makedirs(DIR)
-        self.queue.put((None, self.start_url))
-        while not self.queue.empty() and self.idx < self.pages_limit:
-            print(f"{self.idx}/{self.pages_limit} Crawled")
-            parent, url = self.queue.get()
-            page = self.get_page(parent, url)
-            if page is not None:
-                links = self.parse_links(page, url)
-                for link in links:
-                    if link not in self.visited_pages:
-                        self.queue.put((url, link))
+    def worker(self):
+        while not self.queue.empty():
+            self.crawl_page()
+        print(self.idx)
 
-        self.www_graph.printGraph()
-        print(self.visited_pages)
+    # and self.idx < self.pages_limit
+    def crawl_page(self):
+        url = self.queue.get()
+
+        with self.lock:
+            if url in self.visited_pages or self.idx >= self.pages_limit:
+                self.queue.task_done()
+                return
+            self.visited_pages.add(url)
+
+        page = self.get_page(url)
+        if page is not None:
+            links = self.parse_links(page, url)
+            for link in links:
+                with self.lock:
+                    self.queue.put(link)
+                    self.www_graph.addDirectedEdge(url, link)
+        self.queue.task_done()
+
+    def start(self):
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+
+        start_time = time.time()
+
+        self.queue.put(self.start_url)
+        self.crawl_page()
+
+        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            futures = [executor.submit(self.worker) for _ in range(self.max_threads)]
+            for future in as_completed(futures):
+                future.result()
+
+        end_time = time.time()
+
+        print(f"Execution time: {end_time - start_time:.4f} s")
+
+        with self.lock:
+            self.www_graph.save()
+            print(f"V={self.www_graph.size()} idx={self.idx}")
