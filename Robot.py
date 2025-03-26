@@ -46,7 +46,6 @@ class WWWRobot:
                 if response.status_code == 200:
                     page_content = response.text
                     self.save_page(url, page_content)
-
                     return page_content
             except requests.RequestException as e:
                 print(f"Error reading page {url}: {e}")
@@ -65,9 +64,6 @@ class WWWRobot:
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
-            with self.lock:
-                print(f"[{threading.get_ident()}] idx={self.idx} saving {url}")
-                self.idx += 1
         except Exception as e:
             print(f"Error {filepath}: {e}")
 
@@ -91,25 +87,31 @@ class WWWRobot:
     def worker(self):
         while not self.queue.empty():
             self.crawl_page()
-        print(self.idx)
 
     # and self.idx < self.pages_limit
     def crawl_page(self):
-        url = self.queue.get()
+        parent, url = self.queue.get()
 
         with self.lock:
-            if url in self.visited_pages or self.idx >= self.pages_limit:
+            if url in self.visited_pages:
+                # print(f"powt [V={self.www_graph.nodes()} E={self.www_graph.edges()}]")
+                self.www_graph.addDirectedEdge(parent, url)
                 self.queue.task_done()
                 return
-            self.visited_pages.add(url)
+            if self.www_graph.nodes() > self.pages_limit:
+                self.queue.task_done()
+                return
 
         page = self.get_page(url)
         if page is not None:
+            print(
+                f"[{threading.get_ident()}] [V={self.www_graph.nodes()} E={self.www_graph.edges()}]  saving {url}"
+            )
+            self.visited_pages.add(url)
+            self.www_graph.addDirectedEdge(parent, url)
             links = self.parse_links(page, url)
             for link in links:
-                with self.lock:
-                    self.queue.put(link)
-                    self.www_graph.addDirectedEdge(url, link)
+                self.queue.put((url, link))
         self.queue.task_done()
 
     def start(self):
@@ -118,7 +120,7 @@ class WWWRobot:
 
         start_time = time.time()
 
-        self.queue.put(self.start_url)
+        self.queue.put((self.start_url, self.start_url))
         self.crawl_page()
 
         with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
@@ -132,4 +134,4 @@ class WWWRobot:
 
         with self.lock:
             self.www_graph.save()
-            print(f"V={self.www_graph.size()} idx={self.idx}")
+            print(f"V={self.www_graph.nodes()} idx={self.idx}")
