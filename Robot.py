@@ -51,14 +51,16 @@ class WWWRobot:
                 print(f"Error reading page {url}: {e}")
         return None
 
-    def save_page(self, url, content):
-        filename = (
+    def format_link(self, url):
+        return (
             re.sub(r"https?://", "", url)
             .replace("/", "-")
             .replace(".", "-")
             .replace("%", "-")
-            + ".html"
         )
+
+    def save_page(self, url, content):
+        filename = self.format_link(url) + "html"
         filepath = os.path.join(self.save_dir, filename)
 
         try:
@@ -88,17 +90,15 @@ class WWWRobot:
         while not self.queue.empty():
             self.crawl_page()
 
-    # and self.idx < self.pages_limit
     def crawl_page(self):
         parent, url = self.queue.get()
 
         with self.lock:
-            if url in self.visited_pages:
-                # print(f"powt [V={self.www_graph.nodes()} E={self.www_graph.edges()}]")
+            if self.format_link(url) in self.visited_pages:
                 self.www_graph.addDirectedEdge(parent, url)
                 self.queue.task_done()
                 return
-            if self.www_graph.nodes() > self.pages_limit:
+            if self.www_graph.nodes() >= self.pages_limit:  # Zmiana z '>' na '>='
                 self.queue.task_done()
                 return
 
@@ -107,11 +107,19 @@ class WWWRobot:
             print(
                 f"[{threading.get_ident()}] [V={self.www_graph.nodes()} E={self.www_graph.edges()}]  saving {url}"
             )
-            self.visited_pages.add(url)
-            self.www_graph.addDirectedEdge(parent, url)
+            with self.lock:
+                if self.www_graph.nodes() >= self.pages_limit:
+                    self.queue.task_done()
+                    return
+                self.visited_pages.add(self.format_link(url))
+                self.www_graph.addDirectedEdge(parent, url)
+
             links = self.parse_links(page, url)
-            for link in links:
-                self.queue.put((url, link))
+            with self.lock:
+                if self.www_graph.nodes() < self.pages_limit:
+                    for link in links:
+                        self.queue.put((url, link))
+
         self.queue.task_done()
 
     def start(self):

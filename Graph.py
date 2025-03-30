@@ -14,7 +14,16 @@ class WWWGraph:
         self.pages_limit = pages_limit
 
     def addDirectedEdge(self, page, sub_page):
-        self.G.add_edge(page, sub_page)
+
+        self.G.add_edge(self.format_link(page), self.format_link(sub_page))
+
+    def format_link(self, link):
+        return (
+            re.sub(r"https?://", "", link)
+            .replace("/", "-")
+            .replace(".", "-")
+            .replace("%", "-")
+        )
 
     def nodes(self):
         return self.G.number_of_nodes()
