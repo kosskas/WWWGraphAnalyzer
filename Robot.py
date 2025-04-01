@@ -52,12 +52,18 @@ class WWWRobot:
         return None
 
     def format_link(self, url):
-        return (
+        url = (
             re.sub(r"https?://", "", url)
             .replace("/", "-")
             .replace(".", "-")
             .replace("%", "-")
         )
+        url = re.sub(r"#.*", "", url)
+        url = re.sub(r"\?.*", "", url)
+
+        if url[-1] == "/":
+            url = url[:-1]
+        return url
 
     def save_page(self, url, content):
         filename = self.format_link(url) + "html"
@@ -66,6 +72,9 @@ class WWWRobot:
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
+                print(
+                    f"[{threading.get_ident()}] [V={self.www_graph.nodes()} E={self.www_graph.edges()}]  saving {url}"
+                )
         except Exception as e:
             print(f"Error {filepath}: {e}")
 
@@ -104,21 +113,13 @@ class WWWRobot:
 
         page = self.get_page(url)
         if page is not None:
-            print(
-                f"[{threading.get_ident()}] [V={self.www_graph.nodes()} E={self.www_graph.edges()}]  saving {url}"
-            )
             with self.lock:
-                if self.www_graph.nodes() >= self.pages_limit:
-                    self.queue.task_done()
-                    return
                 self.visited_pages.add(self.format_link(url))
                 self.www_graph.addDirectedEdge(parent, url)
 
             links = self.parse_links(page, url)
-            with self.lock:
-                if self.www_graph.nodes() < self.pages_limit:
-                    for link in links:
-                        self.queue.put((url, link))
+            for link in links:
+                self.queue.put((url, link))
 
         self.queue.task_done()
 
