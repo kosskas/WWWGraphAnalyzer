@@ -30,12 +30,6 @@ class WWWGraph:
             .replace("%", "-")
         )
 
-    def nodes(self):
-        return self.G.number_of_nodes()
-
-    def edges(self):
-        return self.G.number_of_edges()
-
     def read(self):
         self.G = nx.read_gml("graph.gml")
 
@@ -92,10 +86,13 @@ class WWWGraph:
         with open(f"{filename}.txt", "w", encoding="utf-8") as f:
             f.write(text)
 
+    def basic(self):
+        print(f"V={self.G.number_of_nodes()}, E={self.G.number_of_edges()}")
+
     def InOutDeg(self):
+        # rozkłady stopni (in, out), wyznaczenie współczynników funkcji potęgowej metodami analitycznymi (np. regresja),
         in_deg = Counter(Counter(dict(self.G.in_degree())).values())
         out_deg = Counter(Counter(dict(self.G.out_degree())).values())
-
         x_in, y_in = zip(*in_deg.items())
         x_out, y_out = zip(*out_deg.items())
 
@@ -104,76 +101,49 @@ class WWWGraph:
         outSort = sorted([i for i in out_deg.keys()])
         self.save_file("out_deg", "".join([f"({i}, {out_deg[i]})\n" for i in outSort]))
 
-        self.print_power_law_formula(x_in, y_in, "Wejściowe")
-        self.print_power_law_formula(x_out, y_out, "Wyjściowe")
+        self.print_linregress(x_in, y_in, "Wejściowe")
+        self.print_linregress(x_out, y_out, "Wyjściowe")
 
-    def print_power_law_formula(self, x, y, label):
-        # Filtracja danych, aby usunąć stopnie = 0 (ponieważ nie mają sensu w rozkładzie potęgowym)
+    def print_linregress(self, x, y, label):
         non_zero_x = np.array(x)[np.array(x) > 0]
         non_zero_y = np.array(y)[np.array(x) > 0]
 
-        # Logarytmiczne wartości stopni i liczby wierzchołków
         log_x = np.log(non_zero_x)
         log_y = np.log(non_zero_y)
 
-        # Dopasowanie regresji log-log
         slope, intercept, r_value, p_value, std_err = linregress(log_x, log_y)
-
-        # Drukowanie wzoru rozkładu potęgowego
+        b = slope
+        a = np.exp(intercept)
         print(f"Wzór rozkładu potęgowego ({label}):")
-        print(f"P(k) = C * k^(-{slope:.2f})")
+        print(f"P(k) = {a:.4f} * x^{b:.4f}")
         print(f"R^2 = {r_value**2:.2f}\n")
 
     def SCCWCC(self):
-        wcc = list(nx.weakly_connected_components(self.G))
-        num_wcc = len(wcc)
-        largest_wcc = max(wcc, key=len)
+        # analiza składowych spójności: słabe (WCC), silne (SCC), komponenty IN, OUT, graf SCC (podział na SCC),
+        wcc = len(
+            list(nx.connected_components(self.G.to_undirected()))
+        )  # len(list(nx.weakly_connected_components(self.G)))
+        scc = len(list(nx.strongly_connected_components(self.G)))
 
-        scc = list(nx.strongly_connected_components(self.G))
-        num_scc = len(scc)
-        largest_scc = max(scc, key=len)
-
-        # Największa silnie spójna składowa (SCC)
-        largest_scc_nodes = set(largest_scc)
-
-        # Wierzchołki, które prowadzą do SCC (IN) – ale nie należą do SCC
-        in_component = {
-            node
-            for node in self.G.nodes
-            if node not in largest_scc_nodes
-            and any(neigh in largest_scc_nodes for neigh in self.G.successors(node))
-        }
-
-        # Wierzchołki, do których można dojść z SCC (OUT) – ale nie należą do SCC
-        out_component = {
-            node
-            for node in self.G.nodes
-            if node not in largest_scc_nodes
-            and any(neigh in largest_scc_nodes for neigh in self.G.predecessors(node))
-        }
-
-        # Drukowanie wyników
-        print(f"Liczba słabych komponentów spójności (WCC): {num_wcc}")
-        print(f"Największy WCC: {len(largest_wcc)} wierzchołków")
-        print(f"Liczba silnych komponentów spójności (SCC): {num_scc}")
-        print(f"Największy SCC: {len(largest_scc)} wierzchołków")
-        print(f"Liczba wierzchołków w SCC: {len(largest_scc_nodes)}")
-        print(f"Liczba wierzchołków w IN: {len(in_component)}")
-        print(f"Liczba wierzchołków w OUT: {len(out_component)}")
+        print(f"Liczba słabych komponentów spójności (WCC): {wcc}")
+        print(f"Liczba silnych komponentów spójności (SCC): {scc}")
 
     def distances(self):
-        # Algorytm Floyda-Warshalla dla wszystkich par wierzchołków
         shortest_paths = dict(nx.all_pairs_shortest_path_length(self.G))
 
-        # Obliczanie średniej odległości
+        # średnie odległości dla każdej pary
         distances = []
-        for node, paths in shortest_paths.items():
-            for target, length in paths.items():
-                distances.append(length)
+        for source, targets in shortest_paths.items():
+            for target, distance in targets.items():
+                if source != target:  # Takie same pary
+                    distances.append(distance)
 
         avg_distance = np.mean(distances)
-        print(f"distances {Counter(distances)}")
+        counter = Counter(distances)
+        print(f"distances {counter}")
         print(f"Średnia odległość w grafie: {avg_distance}")
+
+        self.print_linregress(list(counter.keys()), list(counter.values()), "distances")
 
     def diameter(self):
         # Średnica grafu (maksymalna odległość)
@@ -186,13 +156,26 @@ class WWWGraph:
         print(f"Promień grafu: {radius}")
 
     def cluster(self):
+        # współczynniki klasteryzacji: lokalne oraz globalne (analiza histogramów i regresja dla rozkładów)
         # Lokalny współczynnik klasteryzacji
-        # local_clustering = nx.clustering(self.G)
+        local_clustering = nx.clustering(self.G)
 
         # Globalny współczynnik klasteryzacji
-        global_clustering = nx.average_clustering(self.G)
-        # print(f"Lokalny współczynnik klasteryzacji: {local_clustering}")
+        # nx.average_clustering(self.G) wychodzi to samo co local_clustering
+        global_clustering = nx.transitivity(self.G.to_undirected())
+
+        print(
+            f"Lokalny współczynnik klasteryzacji: {np.mean(list(local_clustering.values()))}"
+        )
         print(f"Globalny współczynnik klasteryzacji: {global_clustering}")
+        counter = Counter(round(v, 2) for v in local_clustering.values())
+        self.print_linregress(
+            list(counter.keys()), list(counter.values()), "localclust"
+        )
+        self.save_file(
+            "localcluster",
+            "".join(f"({k}, {v})\n" for k, v in counter.items()),
+        )
 
     def pagerank(self):
         pagerank = nx.pagerank(self.G, alpha=0.85)
@@ -204,12 +187,13 @@ class WWWGraph:
     def analyze_graph(self):
         workers = 4
         functions = [
-            self.SCCWCC,
-            self.InOutDeg,
-            self.distances,
-            self.cluster,
-            self.diameter,
-            self.radius,
+            # self.basic,
+            # self.SCCWCC,
+            # self.InOutDeg,
+            # self.distances,
+            # self.cluster,
+            # self.diameter,
+            # self.radius,
             self.pagerank,
         ]
 
@@ -224,6 +208,3 @@ if __name__ == "__main__":
     g = WWWGraph(1)
     g.read()
     g.analyze_graph()
-    # stats = g.analyze_graph()
-    # for key, value in stats.items():
-    #     print(f"{key}: {value}")
