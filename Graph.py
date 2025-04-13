@@ -17,9 +17,9 @@ class WWWGraph:
     def __init__(self, pages_limit):
         self.G = nx.DiGraph()
         self.pages_limit = pages_limit
+        self.pages_num = {}
 
     def addDirectedEdge(self, page, sub_page):
-
         self.G.add_edge(self.format_link(page), self.format_link(sub_page))
 
     def format_link(self, link):
@@ -145,6 +145,14 @@ class WWWGraph:
 
         self.print_linregress(list(counter.keys()), list(counter.values()), "distances")
 
+        x = np.array(list(counter.keys()))
+        y = np.array(list(counter.values()))
+
+        # Regresja kwadratowa: y = a*x^2 + b*x + c
+        coeffs = np.polyfit(x, y, 2)
+        a, b, c = coeffs
+        print(f"Regresja kwadratowa: {a:.4f} * x2 + {b:.4f} * x + {c:.4f}")
+
     def diameter(self):
         # Średnica grafu (maksymalna odległość)
         diameter = nx.diameter(self.G)
@@ -170,19 +178,123 @@ class WWWGraph:
         print(f"Globalny współczynnik klasteryzacji: {global_clustering}")
         counter = Counter(round(v, 2) for v in local_clustering.values())
         self.print_linregress(
-            list(counter.keys()), list(counter.values()), "localclust"
+            list(counter.keys()), list(counter.values()), "localclust2"
+        )
+        self.print_linregress(
+            list(counter.keys()), list(counter.values()), "localclust1"
         )
         self.save_file(
-            "localcluster",
-            "".join(f"({k}, {v})\n" for k, v in counter.items()),
+            "localcluster2",
+            "".join(
+                f"({k}, {v})\n"
+                for k, v in Counter(
+                    round(v, 2) for v in local_clustering.values()
+                ).items()
+            ),
+        )
+        self.save_file(
+            "localcluster1",
+            "".join(
+                f"({k}, {v})\n"
+                for k, v in Counter(
+                    round(v, 1) for v in local_clustering.values()
+                ).items()
+            ),
         )
 
-    def pagerank(self):
+    def vertex_connectivity(self):
+        try:
+            print("[INFO] Start node_connectivity obliczeń...")
+            undirected_G = self.G.to_undirected()
+            k = 1  # nx.node_connectivity(self.G)
+            print(f"[OK] Vertex connectivity (node_connectivity) = {k}")
+            cuts = 0
+            if k == 1:
+                cuts = sum(1 for _ in nx.all_node_cuts(undirected_G))
+                print(f"k=1, cuts {cuts}")
+            elif k == 2:
+                pairs = len(list(nx.k_edge_components(self.G, k)))
+                print(f"k=2, cuts {pairs}")
+            else:
+                print(k)
+        except Exception as e:
+            print(e)
+
+    def pagerank1(self):
         pagerank = nx.pagerank(self.G, alpha=0.85)
         # Rozkład PageRank
-        pr_values = list(pagerank.values())
-        plt.hist(pr_values, bins=20, alpha=0.5, label="PageRank")
+        sorted_pagerank = dict(
+            sorted(pagerank.items(), key=lambda item: item[1], reverse=True)
+        )
+        vertex_to_id = {name: i for i, name in enumerate(sorted_pagerank.keys())}
+
+        x_vals = list(vertex_to_id.values())
+        y_vals = list(sorted_pagerank.values())
+
+        # Wykres
+        plt.figure(figsize=(10, 6))
+        plt.bar(x_vals, y_vals)
+        plt.xlabel("ID strony (kolejność według PageRank)")
+        plt.ylabel("Wartość PageRank")
+        plt.title("Rozkład PageRank")
+        plt.savefig("pagerank1.png")
+
+    def pagerank1(self):
+        pagerank = nx.pagerank(self.G, alpha=0.85)
+        # Rozkład PageRank
+        sorted_pagerank = dict(
+            sorted(pagerank.items(), key=lambda item: item[1], reverse=True)
+        )
+        vertex_to_id = {name: i for i, name in enumerate(sorted_pagerank.keys())}
+
+        x_vals = list(vertex_to_id.values())
+        y_vals = list(sorted_pagerank.values())
+
+        # Wykres
+        plt.figure(figsize=(10, 6))
+        plt.bar(x_vals, y_vals)
+        plt.xlabel("ID strony (kolejność według PageRank)")
+        plt.ylabel("Wartość PageRank")
+        plt.title("Rozkład PageRank")
         plt.savefig("pagerank.png")
+
+    def custom_pagerank(self, alpha):
+        tol = 1e-6
+        max_iter = 100
+        N = self.G.number_of_nodes()
+        nodes = list(self.G.nodes())
+        ranks = {node: 1 / N for node in nodes}
+        for _ in range(max_iter):
+            new_ranks = {}
+            for node in nodes:
+                rank_sum = sum(
+                    ranks[neigh] / self.G.out_degree(neigh)
+                    for neigh in self.G.predecessors(node)
+                    if self.G.out_degree(neigh) > 0
+                )
+                new_ranks[node] = (1 - alpha) / N + alpha * rank_sum
+            delta = sum(abs(new_ranks[n] - ranks[n]) for n in nodes)
+            ranks = new_ranks
+            if delta < tol:
+                break
+        sorted_pagerank = dict(
+            sorted(ranks.items(), key=lambda item: item[1], reverse=True)
+        )
+        vertex_to_id = {name: i for i, name in enumerate(sorted_pagerank.keys())}
+
+        x_vals = list(vertex_to_id.values())
+        y_vals = list(sorted_pagerank.values())
+        self.print_linregress(x_vals, y_vals, f"pg a={alpha}")
+        self.save_file(
+            f"pg a={alpha}",
+            "".join(f"({k}, {v})\n" for k, v in zip(x_vals, y_vals)),
+        )
+
+    def run_custom_pagerank(self):
+        print("\n[INFO] Analiza zbieżności przy różnych wartościach tłumienia:")
+        for d in [1, 0.85, 0.7, 0.55]:
+            print(f"\nalfa = {d}")
+            self.custom_pagerank(alpha=d)
 
     def analyze_graph(self):
         workers = 4
@@ -194,7 +306,7 @@ class WWWGraph:
             # self.cluster,
             # self.diameter,
             # self.radius,
-            self.pagerank,
+            self.run_custom_pagerank,
         ]
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -207,4 +319,5 @@ if __name__ == "__main__":
 
     g = WWWGraph(1)
     g.read()
-    g.analyze_graph()
+    # g.analyze_graph()
+    g.vertex_connectivity()
