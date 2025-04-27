@@ -107,7 +107,7 @@ class WWWRobot:
                 self.www_graph.addDirectedEdge(parent, url)
                 self.queue.task_done()
                 return
-            if self.www_graph.nodes() >= self.pages_limit:  # Zmiana z '>' na '>='
+            if self.www_graph.nodes() >= self.pages_limit:
                 self.queue.task_done()
                 return
 
