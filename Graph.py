@@ -246,7 +246,11 @@ class WWWGraph:
         N = graph.number_of_nodes()
         nodes = list(graph.nodes())
         ranks = {node: 1 / N for node in nodes}
-        for _ in range(max_iter):
+
+        converged = False
+        iteration = 0
+
+        while not converged and iteration < max_iter:
             new_ranks = {}
             for node in nodes:
                 rank_sum = sum(
@@ -255,10 +259,13 @@ class WWWGraph:
                     if graph.out_degree(neigh) > 0
                 )
                 new_ranks[node] = (1 - alpha) / N + alpha * rank_sum
+
             delta = sum(abs(new_ranks[n] - ranks[n]) for n in nodes)
             ranks = new_ranks
+            iteration += 1
+
             if delta < tol:
-                break
+                converged = True
         counter = Counter(round(v, 7) for v in ranks.values())
         # print(counter)
         self.print_linregress(
@@ -275,6 +282,94 @@ class WWWGraph:
         for d in [1, 0.85, 0.55]:
             print(f"\nalfa = {d}")
             self.custom_pagerank(graph, alpha=d)
+
+    def SCCWCC2(self, G):
+        if not G.is_directed():
+            raise ValueError("Graph must be directed (DLA).")
+
+        analysis = {}
+
+        # --- Weakly Connected Components (WCC) ---
+        wcc = list(nx.weakly_connected_components(G))
+        wcc_sizes = [len(c) for c in wcc]
+        wcc_size_distribution = dict(Counter(wcc_sizes))
+
+        analysis["num_wcc"] = len(wcc)
+        analysis["wcc_sizes"] = wcc_sizes
+        analysis["wcc_size_distribution"] = wcc_size_distribution
+
+        # --- Strongly Connected Components (SCC) ---
+        scc = list(nx.strongly_connected_components(G))
+        scc_sizes = [len(c) for c in scc]
+        scc_size_distribution = dict(Counter(scc_sizes))
+
+        analysis["num_scc"] = len(scc)
+        analysis["scc_sizes"] = scc_sizes
+        analysis["scc_size_distribution"] = scc_size_distribution
+
+        # --- Graph of SCCs (condensation graph) ---
+        scc_graph = nx.condensation(G)
+        analysis["num_scc_nodes"] = scc_graph.number_of_nodes()
+        analysis["num_scc_edges"] = scc_graph.number_of_edges()
+
+        # --- Find IN, OUT, and SCC Core ---
+        largest_scc_nodes = max(scc, key=len)
+        core_nodes = set(largest_scc_nodes)
+
+        in_nodes = set()
+        out_nodes = set()
+
+        for node in G.nodes():
+            if node not in core_nodes:
+                try:
+                    if any(nx.has_path(G, node, core_node) for core_node in core_nodes):
+                        in_nodes.add(node)
+                    if any(nx.has_path(G, core_node, node) for core_node in core_nodes):
+                        out_nodes.add(node)
+                except nx.NetworkXNoPath:
+                    continue
+
+        analysis["scc_core_size"] = len(core_nodes)
+        analysis["in_size"] = len(in_nodes)
+        analysis["out_size"] = len(out_nodes)
+
+        # --- PRINT distributions ---
+        print("\nWeakly Connected Components (WCC) size distribution:")
+        for size, count in sorted(wcc_size_distribution.items()):
+            print(f"({count}, {size})")
+
+        print("\nStrongly Connected Components (SCC) size distribution:")
+        for size, count in sorted(scc_size_distribution.items()):
+            print(f"({count}, {size})")
+
+        # --- SAVE distributions to files ---
+        wcc_distribution_text = "\n".join(
+            [
+                f"({count}, {size})"
+                for size, count in sorted(wcc_size_distribution.items())
+            ]
+        )
+        self.save_file(f"{self.label}_wcc_distribution", wcc_distribution_text)
+
+        scc_distribution_text = "\n".join(
+            [
+                f"({count}, {size})"
+                for size, count in sorted(scc_size_distribution.items())
+            ]
+        )
+        self.save_file(f"{self.label}_scc_distribution", scc_distribution_text)
+
+        # --- SAVE global stats summary ---
+        summary_text = (
+            f"Number of WCC: {analysis['num_wcc']}\n"
+            f"Number of SCC: {analysis['num_scc']}\n"
+            f"Number of nodes in condensed SCC graph: {analysis['num_scc_nodes']}\n"
+            f"Number of edges in condensed SCC graph: {analysis['num_scc_edges']}\n"
+            f"Size of SCC core: {analysis['scc_core_size']}\n"
+            f"Size of IN component: {analysis['in_size']}\n"
+            f"Size of OUT component: {analysis['out_size']}\n"
+        )
+        self.save_file(f"{self.label}_sccwcc_summary", summary_text)
 
     def simulate_failure_and_attack_scenarios(self, Graph, idx, seed=None):
 
@@ -293,7 +388,6 @@ class WWWGraph:
         attack_50 = [node for node, _ in degree_sorted[: int(0.50 * n)]]
         failure_10 = random.sample(nodes, int(0.10 * n))
         failure_20 = random.sample(nodes, int(0.20 * n))
-        failure_30 = random.sample(nodes, int(0.30 * n))
         failure_50 = random.sample(nodes, int(0.50 * n))
         scenarios = None
 
@@ -304,14 +398,12 @@ class WWWGraph:
         if 3 == idx:
             scenarios = remove_nodes(Graph, failure_20)
         if 4 == idx:
-            scenarios = remove_nodes(Graph, failure_30)
-        if 5 == idx:
             scenarios = remove_nodes(Graph, failure_50)
-        if 6 == idx:
+        if 5 == idx:
             scenarios = remove_nodes(Graph, attack_10)
-        if 7 == idx:
+        if 6 == idx:
             scenarios = remove_nodes(Graph, attack_20)
-        if 8 == idx:
+        if 7 == idx:
             scenarios = remove_nodes(Graph, attack_50)
 
         return scenarios
@@ -329,17 +421,17 @@ class WWWGraph:
             # self.run_custom_pagerank,
             self.vertex_connectivity,
         ]
-        for idx in range(1, 9):
+        for idx in range(1, 8):
             try:
                 print(f"===============tryb {idx}=====================")
                 self.label = f"tryb_{idx}"
                 graph = self.simulate_failure_and_attack_scenarios(self.G, idx, 23)
-                self.excentricity(graph)
+                self.SCCWCC2(graph)
             except Exception as e:
                 print(e)
-                # futures = [executor.submit(func, graph) for func in functions]
-                # for future in futures:
-                #    future.result()
+            # futures = [executor.submit(func, graph) for func in functions]
+            # for future in futures:
+            #    future.result()
             # with ThreadPoolExecutor(max_workers=workers) as executor:
             #     futures = [executor.submit(func, self.G) for func in functions]
             #     for future in futures:
